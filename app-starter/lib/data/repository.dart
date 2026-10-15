@@ -180,17 +180,40 @@ class NoteRepository {
   Future<({List<SourceChunk> sources, bool partial})> overview({
     String? documentId,
   }) async {
-    // TODO(10): 요약용 근거 가져오기 (검색 없이 문서 앞부분 사용)
-    // - documents() 중 status가 'ready'이고, documentId가 있으면 그 id와 같은 문서만 고릅니다.
-    // - 0개면 (sources: <SourceChunk>[], partial: false)를 반환합니다.
-    // - 2개 이상이면 어떤 문서를 요약할지 모르므로 FormatException을 던집니다.
-    //   ('요약할 문서를 골라주세요. ...')
-    // - 'chunks' 테이블에서 select('id, document_id, position, content'),
-    //   eq('document_id', 문서 id), order('position', ascending: true), limit(8 + 1)
-    // - 앞 8개를 SourceChunk.fromJson({...row, 'title': 문서 제목, 'similarity': null})로 바꿉니다.
-    // - 9개째가 있으면 partial: true입니다. (문서가 길어 앞부분만 요약)
-    // - 확인: flutter test test/overview_repository_test.dart
-    throw UnimplementedError('TODO(10): overview');
+    final ready = (await documents())
+        .where(
+          (d) =>
+              d.status == 'ready' && (documentId == null || d.id == documentId),
+        )
+        .toList();
+    if (ready.isEmpty) return (sources: <SourceChunk>[], partial: false);
+    if (ready.length > 1) {
+      throw const FormatException(
+        '요약할 문서를 골라주세요. '
+        '문서함에서 해당 문서의 "이 노트에 질문하기"를 누르면 됩니다.',
+      );
+    }
+    final doc = ready.single;
+    const limit = 8;
+    final rows = await client
+        .from('chunks')
+        .select('id, document_id, position, content')
+        .eq('document_id', doc.id)
+        .order('position', ascending: true)
+        .limit(limit + 1);
+    return (
+      sources: rows
+          .take(limit)
+          .map(
+            (row) => SourceChunk.fromJson({
+              ...row,
+              'title': doc.title,
+              'similarity': null,
+            }),
+          )
+          .toList(),
+      partial: rows.length > limit,
+    );
   }
 
   Future<List<SourceChunk>> search(

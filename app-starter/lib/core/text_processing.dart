@@ -41,13 +41,19 @@ List<String> chunkText(String text, {int size = 320, int overlap = 48}) {
 
 /// 스트리밍 응답(SSE)의 바이트 흐름에서 data 필드만 꺼냅니다.
 Stream<String> sseData(Stream<List<int>> bytes) async* {
-  // TODO(11): SSE 파싱
-  // - bytes.transform(utf8.decoder).transform(const LineSplitter())로 줄 단위로 읽습니다.
-  //   (utf8.decoder는 여러 조각으로 나뉜 한글 바이트도 이어 붙여 줍니다.)
-  // - 'data:'로 시작하는 줄만 값을 모읍니다. 'data:' 뒤의 공백 한 칸은 제거합니다.
-  // - ': ping' 같은 주석 줄은 무시합니다.
-  // - 빈 줄을 만나면 지금까지 모은 값을 '\n'으로 합쳐 yield합니다.
-  // - 스트림이 끝났을 때 남은 값이 있으면 마지막으로 yield합니다.
-  // - 확인: flutter test test/core_test.dart ('SSE handles split UTF8 ...')
-  throw UnimplementedError('TODO(11): sseData');
+  final data = <String>[];
+  await for (final line
+      in bytes.transform(utf8.decoder).transform(const LineSplitter())) {
+    if (line.isEmpty) {
+      if (data.isNotEmpty) {
+        yield data.join('\n');
+        data.clear();
+      }
+    } else if (line.startsWith('data:')) {
+      var value = line.substring(5);
+      if (value.startsWith('')) value = value.substring(1);
+      data.add(value);
+    }
+  }
+  if (data.isNotEmpty) yield data.join('\n');
 }

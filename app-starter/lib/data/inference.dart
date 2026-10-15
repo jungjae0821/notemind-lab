@@ -77,23 +77,50 @@ class InferenceSession {
 
   /// 대화 메시지를 보내고 답변을 토큰 단위로 받습니다. (POST {chatUrl}/chat/completions)
   Stream<String> chat(List<Json> messages) async* {
-    // TODO(12): 스트리밍 답변 받기
-    // - check() 후 http.Request('POST', endpoint(config.chatUrl, 'chat/completions'))를 만듭니다.
-    //   headers를 넣고, body는 jsonEncode로 아래 값을 보냅니다.
-    //   'model': config.model, 'messages': messages, 'stream': true,
-    //   'max_tokens': 768, 'temperature': 0.2,
-    //   'chat_template_kwargs': {'enable_thinking': false}
-    // - _client.send(request).timeout(60초) 후 check(). 200이 아니면 Exception.
-    // - sseData(response.stream.timeout(90초))로 이벤트를 하나씩 읽습니다. (TODO 11)
-    //   - 이벤트마다 check()를 호출합니다.
-    //   - '[DONE]'이면 정상 종료 표시를 하고 반복을 끝냅니다.
-    //   - JSON에 'error'가 있으면 Exception.
-    //   - choices[0]['delta']['content']가 비어 있지 않은 문자열이면 yield합니다.
-    // - 반복이 끝난 뒤 check()를 호출합니다.
-    //   '[DONE]'을 받지 못했으면 Exception('응답 연결이 완료 전에 끊어졌습니다. ...')
-    // - 확인: flutter test test/core_test.dart
-    //   ('SSE refuses silently truncated answers', 'a socket that ends quietly ...')
-    throw UnimplementedError('TODO(12): chat');
+    check();
+    final request =
+        http.Request('POST', endpoint(config.chatUrl, 'chat/completions'))
+          ..headers.addAll(headers)
+          ..body = jsonEncode({
+            'model': config.model,
+            'messages': messages,
+            'stream': true,
+            'max_tokens': 768,
+            'temperature': 0.2,
+            'chat_template_kwargs': {'enable_thinking': false},
+          });
+    final response = await _client
+        .send(request)
+        .timeout(const Duration(seconds: 60));
+    check();
+    if (response.statusCode != 200) {
+      throw Exception(
+        '생성 요청 실패 (${response.statusCode}). '
+        '서버 로그와 모델 설정을 확인하세요.',
+      );
+    }
+    var done = false;
+    await for (final event in sseData(
+      response.stream.timeout(const Duration(seconds: 90)),
+    )) {
+      check();
+      if (event == '[DONE]') {
+        done = true;
+        break;
+      }
+      final json = jsonDecode(event) as Json;
+      if (json.containsKey('error')) {
+        throw Exception('추론 서버가 오류를 반환했습니다.');
+      }
+      final choices = json['choices'] as List? ?? [];
+      if (choices.isEmpty) continue;
+      final content = choices.first['delta']?['content'];
+      if (content is String && content.isNotEmpty) yield content;
+    }
+    check();
+    if (!done) {
+      throw Exception('응답 연결이 완료 전에 끊어졌습니다. 다시 시도하세요.');
+    }
   }
 
   Future<void> probe(String base, String model) async {
